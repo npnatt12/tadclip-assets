@@ -55,7 +55,7 @@ try {
   Push-Location -LiteralPath $T; try { & "$env:SystemRoot\System32\tar.exe" -xzf r.tgz -C src } finally { Pop-Location }
   if ($LASTEXITCODE) { Fail 'แตกไฟล์ไม่สำเร็จ ลองวางบรรทัดเดิมอีกครั้ง'; return 1 }
   Set-Content -LiteralPath "$Cfg\code" $code -Encoding ASCII; Set-Content -LiteralPath "$Cfg\until" $until -Encoding ASCII
-  Write-Host ([char]0x2713 + " รหัสใช้ได้ถึง $until · code valid until $until")
+  Write-Host ([char]0x2713 + " รหัสใช้ได้ TadClip ของคุณใช้ได้ตลอด · code accepted, yours for good")
   $env:TADCLIP_SRC = "$T\src"
   $inst = if ($env:TADCLIP_INSTALLER) { $env:TADCLIP_INSTALLER } else { "$T\src\install.ps1" }
   Get-Content -Raw -Encoding UTF8 -LiteralPath $inst | Invoke-Expression

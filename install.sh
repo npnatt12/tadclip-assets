@@ -51,5 +51,5 @@ curl -fsSL -m 600 -o "$T/r.enc" "$url" || die "ดาวน์โหลดไม
   die "รหัสนี้เปิด TadClip รุ่นนี้ไม่ได้ หรือไฟล์ดาวน์โหลดไม่ครบ ลองวางบรรทัดเดิมอีกครั้ง ถ้ายังไม่ได้ แจ้งในกลุ่ม LINE"
 mkdir "$T/src" && tar -xzf "$T/r.tgz" -C "$T/src"
 umask 077; printf '%s\n' "$code" >"$CFG/code"; printf '%s\n' "$until" >"$CFG/until"   # updates re-use it; ready.sh shows "until"
-say "✓ รหัสใช้ได้ถึง $until · code valid until $until"
+say "✓ รหัสใช้ได้ TadClip ของคุณใช้ได้ตลอด · code accepted, yours for good"
 if [ -n "$INSTALL" ]; then TADCLIP_SRC="$T/src" bash "$INSTALL"; else TADCLIP_SRC="$T/src" bash "$T/src/install.sh"; fi
