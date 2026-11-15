@@ -7,28 +7,43 @@ set -euo pipefail
 GATE=${TADCLIP_GATE:-https://script.google.com/macros/s/AKfycbxXamYyB1J4OK5soi3HYRau9bkKvSpzZuVZzevri_w09xKLPhL6OgvE4uG8lznqbOi4/exec}          # the Apps Script web app
 META=${TADCLIP_META:-https://raw.githubusercontent.com/npnatt12/tadclip-assets/main/release.json}
 INSTALL=${TADCLIP_INSTALLER:-}                                                     # the usual installer (local in tests)
-CFG="$HOME/.config/tadclip"; mkdir -p "$CFG"
+CFG="$HOME/.config/tadclip"
 say() { printf '%s\n' "$*" >&2; }
 die() { say ""; say "✗ $1"; exit 1; }
+# Check the target volume before saving credentials or downloading anything.
+mac=$(sw_vers -productVersion 2>/dev/null || true)
+[ "$(uname -sm)" = "Darwin arm64" ] && [ "${mac%%.*}" -ge 14 ] 2>/dev/null || die "เครื่องนี้ใช้ TadClip ไม่ได้: ต้องเป็น Mac ชิป Apple (M1 ขึ้นไป) และ macOS 14 ขึ้นไป ยังไม่ได้ใช้รหัส"
+D="$HOME/.claude/skills/tadclip"
+need=8388608; [ ! -e "$D" ] || need=1048576
+free=$(df -k "$HOME" | awk 'NR==2{print $4}')
+[ "${free:-0}" -ge "$need" ] || die "พื้นที่ไม่พอ: ต้องว่างประมาณ 8 GB สำหรับติดตั้งครั้งแรก หรือ 1 GB สำหรับอัปเดต ลบไฟล์ที่ไม่ใช้ออก แล้ววางคำสั่งเดิมอีกครั้ง"
 json() { sed -n "s/.*\"$1\": *\"\{0,1\}\([^\",}]*\).*/\1/p" <<<"$2" | head -1; }   # flat JSON we write ourselves
 
 code=${TADCLIP_CODE:-$(cat "$CFG/code" 2>/dev/null || true)}
 if [ -z "$code" ]; then
-  [ -r /dev/tty ] || die "ไม่มีรหัส TadClip: ใส่รหัสแบบนี้ TADCLIP_CODE=รหัส bash install.sh"
-  printf 'วางรหัส TadClip ที่ได้ทาง LINE แล้วกด Enter · paste your TadClip code: ' >/dev/tty; read -r code </dev/tty
+  notty="ไม่มีรหัส TadClip: เปิดแอป Terminal แล้ววางบรรทัดติดตั้งเองอีกครั้ง ระบบจะถามรหัส"   # an agent has no terminal; never paste the code into a chat
+  { : </dev/tty; } 2>/dev/null || die "$notty"
+  printf 'วางรหัส TadClip ที่ได้ทาง LINE แล้วกด Enter · paste your TadClip code: ' >/dev/tty; read -r code </dev/tty || die "$notty"
 fi
-code=$(printf '%s' "$code" | tr -d '[:space:]' | tr a-z A-Z)
+# Thai digits to 0-9, then keep only A-Z 0-9 and "-": drops spaces, tabs and the zero-width/nbsp characters LINE pastes
+code=$(printf '%s' "$code" | LC_ALL=C sed 's/๐/0/g;s/๑/1/g;s/๒/2/g;s/๓/3/g;s/๔/4/g;s/๕/5/g;s/๖/6/g;s/๗/7/g;s/๘/8/g;s/๙/9/g' |
+       LC_ALL=C tr -cd 'A-Za-z0-9-' | tr a-z A-Z)
+bad="รหัสไม่ถูกต้อง ตรวจรหัสที่ได้ทาง LINE แล้วลองใหม่ (คัดลอกทั้งบรรทัด ขึ้นต้นด้วย TC1-)"
 
 case "$code" in
   TC1-*)   # the Sheet checks it: revocable, counted
+    [[ "$code" =~ ^TC1-[A-Z2-7]{13}$ ]] || die "$bad"   # checked here first: a typo never reaches the checker
     r=$(curl -fsSL -m 30 -H 'Content-Type: application/json' -d "{\"code\":\"$code\"}" "$GATE" 2>/dev/null) ||
       die "เชื่อมต่อระบบตรวจรหัสไม่ได้ ลองวางบรรทัดเดิมอีกครั้งในอีกสักครู่ (ถ้ายังไม่ได้ แจ้งในกลุ่ม LINE)"
+    case "$r" in '{'*'"ok"'*) ;;   # Apps Script answers an HTML page when it fails (seen 12-13 Nov): not the buyer's code
+      *) die "ระบบตรวจรหัสขัดข้องชั่วคราว ลองวางบรรทัดเดิมอีกครั้งในอีกสักครู่ (ถ้ายังไม่ได้ แจ้งในกลุ่ม LINE)";; esac
     case "$(json ok "$r")" in
       true) key=$(json key "$r"); iv=$(json iv "$r"); sha=$(json sha256 "$r"); url=$(json url "$r"); until=$(json until "$r");;
       *) case "$(json why "$r")" in
            expired) die "รหัสนี้หมดอายุแล้ว (ใช้ได้ถึง $(json until "$r")) ต่ออายุได้ในกลุ่ม LINE";;
            revoked) die "รหัสนี้ถูกยกเลิกแล้ว ติดต่อทีมในกลุ่ม LINE";;
-           *) die "รหัสไม่ถูกต้อง ตรวจรหัสที่ได้ทาง LINE แล้วลองใหม่ (คัดลอกทั้งบรรทัด ขึ้นต้นด้วย TC1-)";;
+           norelease) die "TadClip ยังไม่พร้อมให้ติดตั้งตอนนี้ (ทีมกำลังเตรียมรุ่นใหม่) ลองวางบรรทัดเดิมอีกครั้งในอีกสักครู่ ถ้ายังไม่ได้ แจ้งในกลุ่ม LINE";;
+           *) die "$bad";;
          esac;;
     esac;;
   TC2-*)   # no server: the code holds the key for its last month; earlier months come from hashing it
@@ -43,13 +58,100 @@ case "$code" in
   *) die "รหัสไม่ถูกต้อง ตรวจรหัสที่ได้ทาง LINE แล้วลองใหม่ (ขึ้นต้นด้วย TC1- หรือ TC2-)";;
 esac
 
-T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
-say "ดาวน์โหลด TadClip · downloading TadClip"
-curl -fsSL -m 600 -o "$T/r.enc" "$url" || die "ดาวน์โหลดไม่สำเร็จ ลองวางบรรทัดเดิมอีกครั้ง"
-/usr/bin/openssl enc -d -aes-256-cbc -K "$key" -iv "$iv" -in "$T/r.enc" -out "$T/r.tgz" 2>/dev/null &&
+# Resolve once above. Fetch checksums from that immutable release, never branch HEAD.
+m=$(curl -fsSL -m 30 "${url%/*}/release.json" 2>/dev/null) || die "ดาวน์โหลดข้อมูลรุ่นไม่ได้ ลองวางคำสั่งเดิมอีกครั้ง"
+[ "$(json url "$m")" = "$url" ] && [ "$(json sha256 "$m")" = "$sha" ] && [ "$(json iv "$m")" = "$iv" ] || die "ข้อมูลรุ่นไม่ตรงกัน รุ่นเดิมยังอยู่ ลองวางคำสั่งเดิมอีกครั้ง"
+encsha=$(json ciphertext_sha256 "$m"); version=$(json version "$m")
+[[ "$encsha" =~ ^[0-9a-f]{64}$ ]] && [[ "$version" =~ ^v[0-9][0-9A-Za-z.+-]*$ ]] || die "ข้อมูลตรวจไฟล์ของรุ่นนี้ไม่ครบ รุ่นเดิมยังอยู่ แจ้งทีมในกลุ่ม LINE"
+CACHE="$HOME/.cache/tadclip"; cache_made=0; [ -d "$CACHE" ] || cache_made=1; mkdir -p "$CACHE"
+enc="$CACHE/$encsha.enc"; part="$CACHE/$encsha.part"
+checked() { [ -f "$1" ] && [ "$(shasum -a 256 "$1" | cut -c1-64)" = "$encsha" ]; }
+if ! checked "$enc"; then
+  rm -f "$enc"
+  if ! checked "$part"; then
+    say "ดาวน์โหลด TadClip $version · ดาวน์โหลดที่ค้างจะทำต่อจากเดิม"
+    if ! curl -fsSL --connect-timeout 20 --speed-limit 1024 --speed-time 60 -m 600 -C - -o "$part" "$url"; then
+      die "ดาวน์โหลดไม่สำเร็จ รุ่นเดิมยังอยู่ วางคำสั่งเดิมอีกครั้งเพื่อดาวน์โหลดต่อ"
+    fi
+  fi
+  checked "$part" || { rm -f "$part"; die "ไฟล์ดาวน์โหลดไม่ครบหรือเปลี่ยนไป รุ่นเดิมยังอยู่ วางคำสั่งเดิมอีกครั้ง"; }
+  mv "$part" "$enc"
+else
+  say "✓ ใช้ไฟล์ $version ที่ตรวจสอบแล้ว ไม่ต้องดาวน์โหลดซ้ำ"
+fi
+
+T=$(mktemp -d); cache_rejected=0; stage=""; prior=""; switched=0; success=0
+cleanup() {
+  rc=$?
+  if [ "$switched" = 1 ] && [ "$success" != 1 ]; then
+    [ ! -L "$D" ] || rm "$D"
+    if [ -n "$prior" ] && { [ -e "$prior" ] || [ -L "$prior" ]; }; then mv "$prior" "$D"; fi
+    say "ติดตั้งยังไม่สำเร็จ คืนรุ่นเดิมแล้ว วางคำสั่งเดิมอีกครั้งเพื่อทำต่อ"
+  fi
+  [ -z "$stage" ] || [ "$success" = 1 ] || rm -rf "$stage"
+  rm -rf "$T"
+  if [ "$cache_rejected" = 1 ] && [ "$cache_made" = 1 ]; then
+    rm -f "$enc" "$part"
+    rmdir "$CACHE" "$HOME/.cache" 2>/dev/null || true
+  fi
+  return "$rc"
+}
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+/usr/bin/openssl enc -d -aes-256-cbc -K "$key" -iv "$iv" -in "$enc" -out "$T/r.tgz" 2>/dev/null &&
   [ "$(shasum -a 256 "$T/r.tgz" | cut -c1-64)" = "$sha" ] ||
-  die "รหัสนี้เปิด TadClip รุ่นนี้ไม่ได้ หรือไฟล์ดาวน์โหลดไม่ครบ ลองวางบรรทัดเดิมอีกครั้ง ถ้ายังไม่ได้ แจ้งในกลุ่ม LINE"
+  { cache_rejected=1; die "รหัสนี้เปิด TadClip รุ่นนี้ไม่ได้ หรือไฟล์ดาวน์โหลดไม่ครบ รุ่นเดิมยังอยู่ แจ้งทีมในกลุ่ม LINE"; }
 mkdir "$T/src" && tar -xzf "$T/r.tgz" -C "$T/src"
-umask 077; printf '%s\n' "$code" >"$CFG/code"; printf '%s\n' "$until" >"$CFG/until"   # updates re-use it; ready.sh shows "until"
-say "✓ รหัสใช้ได้ TadClip ของคุณใช้ได้ตลอด · code accepted, yours for good"
-if [ -n "$INSTALL" ]; then TADCLIP_SRC="$T/src" bash "$INSTALL"; else TADCLIP_SRC="$T/src" bash "$T/src/install.sh"; fi
+[ "$(cat "$T/src/.tadclip-version" 2>/dev/null)" = "$version" ] && [ -f "$T/src/.tadclip-paid" ] || die "เวอร์ชันในไฟล์ไม่ตรงกัน รุ่นเดิมยังอยู่ แจ้งทีมในกลุ่ม LINE"
+
+parent=$(dirname "$D"); mkdir -p "$parent"
+# A prior kill during the one-time directory-to-link migration can leave the old directory here.
+journal="$parent/.tadclip-switch"
+if [ -f "$journal" ] && [ ! -e "$D" ] && [ ! -L "$D" ]; then
+  recovery=$(cat "$journal")
+  case "$recovery" in "$D".previous-*) [ ! -d "$recovery" ] || mv "$recovery" "$D" ;; esac
+fi
+stage=$(mktemp -d "$parent/.tadclip-$version-XXXXXX")
+cp -Rp "$T/src/." "$stage/"
+# Personal settings stay opaque. Projects, media and activation live outside this tree.
+for state in .env profile.json settings.json config.json; do
+  [ ! -e "$D/$state" ] || cp -p "$D/$state" "$stage/$state"
+done
+# Keep downloaded media while the new payload's files take priority. APFS clones avoid duplicating large caches.
+for assets in music sfx emoji; do
+  if [ -d "$D/library/$assets" ]; then
+    while IFS= read -r -d '' asset; do
+      relative=${asset#"$D/library/$assets/"}
+      target="$stage/library/$assets/$relative"
+      if [ ! -e "$target" ] && [ ! -L "$target" ]; then
+        mkdir -p "$(dirname "$target")"
+        { cp -cp "$asset" "$target" 2>/dev/null || cp -p "$asset" "$target"; } ||
+          die "คัดลอกคลังสื่อไม่สำเร็จ รุ่นเดิมยังอยู่ ตรวจพื้นที่ว่างแล้ววางคำสั่งเดิมอีกครั้ง"
+      fi
+    done < <(find "$D/library/$assets" -type f -print0)
+  fi
+done
+if [ -e "$D" ] || [ -L "$D" ]; then
+  prior="$D.previous-$(date +%s)-$$"
+  printf '%s\n' "$prior" > "$journal"
+  if [ -L "$D" ]; then ln -s "$(readlink "$D")" "$prior"; else mv "$D" "$prior"; fi
+fi
+switched=1
+# The link is created beside the target: mv then replaces an existing link atomically on macOS.
+ln -s "$stage" "$parent/.tadclip-link-$$"
+mv -fh "$parent/.tadclip-link-$$" "$D"
+rm -f "$journal"
+if [ -n "$INSTALL" ]; then TADCLIP_SRC="$T/src" bash "$INSTALL"; else TADCLIP_SRC="$T/src" bash "$D/install.sh"; fi
+success=1
+mkdir -p "$CFG"
+umask 077
+[ -f "$CFG/code" ] || printf '%s\n' "$code" > "$CFG/code"
+[ -f "$CFG/until" ] || printf '%s\n' "$until" > "$CFG/until"
+say "✓ ติดตั้ง $version แล้ว · ใช้ได้ตลอด"
+[ -z "$prior" ] || say "รุ่นก่อนยังเก็บไว้: $prior"
+printf '%s\n' "TADCLIP_INSTALLED=$version"
+say "กำลังเช็กความพร้อมก่อนเรียน รอสักครู่ · checking readiness"
+if [ ! -f "$D/scripts/ready.sh" ] || ! bash "$D/scripts/ready.sh" --installer; then
+  printf '%s\n' "TADCLIP NOT READY · เช็กความพร้อมไม่สำเร็จ ส่งบรรทัดนี้ในกลุ่ม LINE ให้ทีมช่วย · build $version"
+fi
