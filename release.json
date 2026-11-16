@@ -1,11 +1,11 @@
 {
  "month": "2026-11",
- "url": "https://github.com/npnatt12/tadclip-assets/releases/download/v0.5.0-rc3.2/tadclip-v0.5.0-rc3.2.tgz.enc",
- "iv": "5be85adbec2f219614e1e743262fea5f",
- "sha256": "426ed2db20203414fb2d819eaffd7422ab60800ff363fb5c1be5dfacc298c9b8",
- "version": "v0.5.0-rc3.2",
- "source_commit": "c8d403050d9980dda99cc8682ec8e3824d753fbd",
- "source_tree": "5ecc6049b45b813f4803168b23b50a345c1945fc",
- "ciphertext_sha256": "8e769d5c7f4ce9421c185d8ae577c9cdb7676559792d5334705f3509f68271ed",
- "size": 61058864
+ "url": "https://github.com/npnatt12/tadclip-assets/releases/download/v0.5.0-rc3.4/tadclip-v0.5.0-rc3.4.tgz.enc",
+ "iv": "12d135b8918b266af11f8e82ca3f7074",
+ "sha256": "5eb59846b72101949ea51c961c53d85bf791a61e1bdadf4787aa2c9185f8c703",
+ "version": "v0.5.0-rc3.4",
+ "source_commit": "052d4e29c598fe5bfa2421be445a1f1b64e31148",
+ "source_tree": "24f32e151b181ff3692d9562f3db291b72dc0549",
+ "ciphertext_sha256": "5c0a83b9ddf671dee13678b18d2a2519082a0a8a723affeb56ff1053ddbd5e99",
+ "size": 61069552
 }
