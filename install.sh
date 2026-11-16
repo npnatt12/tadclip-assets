@@ -33,7 +33,13 @@ bad="รหัสไม่ถูกต้อง ตรวจรหัสที�
 case "$code" in
   TC1-*)   # the Sheet checks it: revocable, counted
     [[ "$code" =~ ^TC1-[A-Z2-7]{13}$ ]] || die "$bad"   # checked here first: a typo never reaches the checker
-    r=$(curl -fsSL -m 30 -H 'Content-Type: application/json' -d "{\"code\":\"$code\"}" "$GATE" 2>/dev/null) ||
+    # which computer: a random id made once per computer (kept in $CFG) + the computer's own name, for the seller's
+    # code list. Nothing else about the computer is sent.
+    cid=$(cat "$CFG/install-id" 2>/dev/null || true)
+    [[ "$cid" =~ ^[A-Za-z0-9-]{8,64}$ ]] || { cid=$(uuidgen 2>/dev/null || true); [ -z "$cid" ] || (umask 077; mkdir -p "$CFG" && printf '%s\n' "$cid" > "$CFG/install-id"); }
+    cname=$(scutil --get ComputerName 2>/dev/null || hostname 2>/dev/null || true)
+    cname=$(printf '%s' "$cname" | LC_ALL=C tr -d '\000-\037"\\')   # stays valid JSON; the Sheet keeps it as text
+    r=$(curl -fsSL -m 30 -H 'Content-Type: application/json' -d "{\"code\":\"$code\",\"id\":\"$cid\",\"name\":\"$cname\",\"os\":\"mac\"}" "$GATE" 2>/dev/null) ||
       die "เชื่อมต่อระบบตรวจรหัสไม่ได้ ลองวางบรรทัดเดิมอีกครั้งในอีกสักครู่ (ถ้ายังไม่ได้ แจ้งในกลุ่ม LINE)"
     case "$r" in '{'*'"ok"'*) ;;   # Apps Script answers an HTML page when it fails (seen 12-13 Nov): not the buyer's code
       *) die "ระบบตรวจรหัสขัดข้องชั่วคราว ลองวางบรรทัดเดิมอีกครั้งในอีกสักครู่ (ถ้ายังไม่ได้ แจ้งในกลุ่ม LINE)";; esac
