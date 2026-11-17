@@ -32,7 +32,12 @@ $bad = 'รหัสไม่ถูกต้อง ตรวจรหัสท�
 
 if ($code -like 'TC1-*') {
   if ($code -cnotmatch '^TC1-[A-Z2-7]{13}$') { Fail $bad; return 1 }   # a typo never reaches the checker
-  try { $r = Invoke-RestMethod -Method Post -Uri $Gate -ContentType 'application/json' -Body ('{"code":"' + $code + '"}') -TimeoutSec 30 }
+  # which computer: a random id made once per computer (kept in $Cfg) + the computer's own name, for the seller's code list
+  $idFile = Join-Path $Cfg 'install-id'; $cid = ''
+  if (Test-Path -LiteralPath $idFile) { $cid = "$(Get-Content -LiteralPath $idFile -Raw)".Trim() }
+  if ($cid -notmatch '^[A-Za-z0-9-]{8,64}$') { $cid = [guid]::NewGuid().ToString(); try { New-Item -ItemType Directory -Force -Path $Cfg | Out-Null; Set-Content -LiteralPath $idFile -Value $cid -Encoding ascii } catch {} }
+  $body = @{ code = $code; id = $cid; name = "$env:COMPUTERNAME"; os = 'windows' } | ConvertTo-Json -Compress
+  try { $r = Invoke-RestMethod -Method Post -Uri $Gate -ContentType 'application/json; charset=utf-8' -Body ([Text.Encoding]::UTF8.GetBytes($body)) -TimeoutSec 30 }
   catch { Fail 'เชื่อมต่อระบบตรวจรหัสไม่ได้ ลองวางบรรทัดเดิมอีกครั้งในอีกสักครู่ (ถ้ายังไม่ได้ แจ้งในกลุ่ม LINE)'; return 1 }
   # Apps Script answers an HTML page when it fails (seen 12-13 Nov): Invoke-RestMethod hands that back as a string
   if ($null -eq $r -or $r -is [string] -or $null -eq $r.ok) { Fail 'ระบบตรวจรหัสขัดข้องชั่วคราว ลองวางบรรทัดเดิมอีกครั้งในอีกสักครู่ (ถ้ายังไม่ได้ แจ้งในกลุ่ม LINE)'; return 1 }
