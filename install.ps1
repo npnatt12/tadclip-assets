@@ -101,7 +101,8 @@ try {
   } catch {}
   if (-not $ok) { $cacheRejected = $true; Fail 'รหัสนี้เปิด TadClip รุ่นนี้ไม่ได้ หรือไฟล์ดาวน์โหลดไม่ครบ รุ่นเดิมยังอยู่ แจ้งทีมในกลุ่ม LINE'; return 1 }
   New-Item -ItemType Directory -Path "$T\src" | Out-Null
-  Push-Location -LiteralPath $T; try { & "$env:SystemRoot\System32\tar.exe" -xzf r.tgz -C src } finally { Pop-Location }
+  Push-Location -LiteralPath $T; try { & "$env:SystemRoot\System32\tar.exe" -xzf r.tgz -C src --exclude '._*' --exclude '*/._*' } finally { Pop-Location }
+  # ._* = macOS metadata a Mac-built archive can carry; '._.' can't be copied on Windows (11-18: every paid Windows install failed on it)
   if ($LASTEXITCODE) { Fail 'แตกไฟล์ไม่สำเร็จ รุ่นเดิมยังอยู่ ลองวางคำสั่งเดิมอีกครั้ง'; return 1 }
   if ((Get-Content -LiteralPath "$T\src\.tadclip-version" -Raw).Trim() -ne $version -or -not (Test-Path -LiteralPath "$T\src\.tadclip-paid")) { Fail 'เวอร์ชันในไฟล์ไม่ตรงกัน รุ่นเดิมยังอยู่ แจ้งทีมในกลุ่ม LINE'; return 1 }
   $parent = Split-Path -Parent $D; New-Item -ItemType Directory -Force -Path $parent | Out-Null
@@ -150,6 +151,12 @@ try {
   New-Item -ItemType Directory -Force -Path $Cfg | Out-Null
   if (-not (Test-Path -LiteralPath "$Cfg\code")) { Set-Content -LiteralPath "$Cfg\code" $code -Encoding ASCII }
   if (-not (Test-Path -LiteralPath "$Cfg\until")) { Set-Content -LiteralPath "$Cfg\until" $until -Encoding ASCII }
+  Set-Content -LiteralPath "$Cfg\gate" $Gate -Encoding ASCII   # the app's check-in (app/hello.mjs) uses the same checker
+  try {   # the install's stamp (sha256 of the code, not the code) and checker travel with the folder: a copy checks in as a copy
+    $h = [Security.Cryptography.SHA256]::Create().ComputeHash([Text.Encoding]::ASCII.GetBytes($code))
+    Set-Content -LiteralPath "$D\.tadclip-stamp" (-join ($h[0..7] | ForEach-Object { $_.ToString('x2') })) -Encoding ASCII
+    Set-Content -LiteralPath "$D\.tadclip-gate" $Gate -Encoding ASCII
+  } catch {}
   $global:LASTEXITCODE = 0
   Write-Host "ติดตั้ง $version แล้ว · ใช้ได้ตลอด"
   if ($prior) { Write-Host "รุ่นก่อนยังเก็บไว้: $prior" }
@@ -166,7 +173,20 @@ try {
     Write-Host "TADCLIP NOT READY · เช็กความพร้อมไม่สำเร็จ ส่งบรรทัดนี้ในกลุ่ม LINE ให้ทีมช่วย · build $version"
   }
   $global:LASTEXITCODE = 0
-} catch { Fail 'ติดตั้งไม่สำเร็จ รุ่นเดิมยังอยู่ วางคำสั่งเดิมอีกครั้งเพื่อทำต่อ'; return 1 }
+} catch {
+  # 11-18: a ClubGig editor's install stopped here with only this line, and the cause was lost. Show it and keep it.
+  $why = ("$($_.Exception.Message)" -replace '\s+', ' ').Trim(); $at = $_.InvocationInfo.ScriptLineNumber
+  Fail 'ติดตั้งไม่สำเร็จ รุ่นเดิมยังอยู่ วางคำสั่งเดิมอีกครั้งเพื่อทำต่อ'
+  Write-Host "สาเหตุ · reason: $why (line $at)"
+  if ($why -match 'being used by another process|Access to the path .* is denied|ใช้งานอยู่') {
+    Write-Host 'ปิดหน้าต่าง CutCraft และ File Explorer / PowerShell ที่เปิดโฟลเดอร์ tadclip อยู่ แล้ววางคำสั่งเดิมอีกครั้ง · close CutCraft and any window open in the tadclip folder, then paste the line again'
+  }
+  try {
+    $logs = Join-Path $env:LOCALAPPDATA 'TadClip\Logs'; New-Item -ItemType Directory -Force -Path $logs | Out-Null
+    Add-Content -LiteralPath (Join-Path $logs 'gate-install.log') -Encoding UTF8 -Value ("{0:yyyy-MM-dd HH:mm:ss} {1} failed at line {2}: {3}" -f (Get-Date), $version, $at, $why)
+  } catch {}
+  return 1
+}
 finally {
   if ($switched -and -not $success) {
     if (Test-Path -LiteralPath $D) { [IO.Directory]::Move($D, $D + '.failed-' + [guid]::NewGuid().ToString('N')) }

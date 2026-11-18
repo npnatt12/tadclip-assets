@@ -155,6 +155,8 @@ umask 077
 [ -f "$CFG/code" ] || printf '%s\n' "$code" > "$CFG/code"
 [ -f "$CFG/until" ] || printf '%s\n' "$until" > "$CFG/until"
 printf '%s\n' "$GATE" > "$CFG/gate"   # the app's check-in (app/hello.mjs) uses the same checker
+# the install's stamp (sha256 of the code, not the code) and checker travel with the folder: a copy checks in as a copy
+{ printf '%s' "$code" | shasum -a 256 | cut -c1-16 > "$D/.tadclip-stamp" && printf '%s\n' "$GATE" > "$D/.tadclip-gate"; } 2>/dev/null || true
 say "✓ ติดตั้ง $version แล้ว · ใช้ได้ตลอด"
 [ -z "$prior" ] || say "รุ่นก่อนยังเก็บไว้: $prior"
 printf '%s\n' "TADCLIP_INSTALLED=$version"
