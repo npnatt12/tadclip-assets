@@ -12,7 +12,7 @@ say() { printf '%s\n' "$*" >&2; }
 die() { say ""; say "✗ $1"; exit 1; }
 # Check the target volume before saving credentials or downloading anything.
 mac=$(sw_vers -productVersion 2>/dev/null || true)
-[ "$(uname -sm)" = "Darwin arm64" ] && [ "${mac%%.*}" -ge 14 ] 2>/dev/null || die "เครื่องนี้ใช้ TadClip ไม่ได้: ต้องเป็น Mac ชิป Apple (M1 ขึ้นไป) และ macOS 14 ขึ้นไป ยังไม่ได้ใช้รหัส"
+[ "$(uname -sm)" = "Darwin arm64" ] && [ "${mac%%.*}" -ge 14 ] 2>/dev/null || die "เครื่องนี้ใช้ CraftCut ไม่ได้: ต้องเป็น Mac ชิป Apple (M1 ขึ้นไป) และ macOS 14 ขึ้นไป ยังไม่ได้ใช้รหัส"
 D="$HOME/.claude/skills/tadclip"
 need=8388608; [ ! -e "$D" ] || need=1048576
 free=$(df -k "$HOME" | awk 'NR==2{print $4}')
@@ -20,10 +20,14 @@ free=$(df -k "$HOME" | awk 'NR==2{print $4}')
 json() { sed -n "s/.*\"$1\": *\"\{0,1\}\([^\",}]*\).*/\1/p" <<<"$2" | head -1; }   # flat JSON we write ourselves
 
 code=${TADCLIP_CODE:-$(cat "$CFG/code" 2>/dev/null || true)}
+# PDPA (review 11-18): what the check-in sends, shown before the code is given; giving the code accepts it. Shown once more
+# to earlier installs (no consent file yet), then recorded with the date
+privacy="CraftCut จะส่งข้อมูลการใช้งานไปที่ระบบตรวจรหัสของทีม: ชื่อเครื่อง ระบบ (Mac/Windows) รุ่นโปรแกรม AI ที่ใช้ จำนวนคลิปที่ทำเสร็จ วันที่ทำคลิปแรก และข้อผิดพลาดล่าสุด เพื่อตรวจรหัส แจ้งอัปเดต และดูแลการใช้งาน ไม่ส่งคลิป เสียง หรือข้อความของคุณ · CraftCut sends usage data to our code checker: computer name, Mac/Windows, version, AI used, reels made, first-reel date and the last error, to check your code, offer updates and support you. Never your clips, voice or words."
+[ -f "$CFG/consent" ] || { echo; echo "$privacy"; [ -n "$code" ] || echo "วางรหัสแล้วกด Enter = ยอมรับ · pasting your code and pressing Enter accepts this"; echo; }
 if [ -z "$code" ]; then
-  notty="ไม่มีรหัส TadClip: เปิดแอป Terminal แล้ววางบรรทัดติดตั้งเองอีกครั้ง ระบบจะถามรหัส"   # an agent has no terminal; never paste the code into a chat
+  notty="ไม่มีรหัส CraftCut: เปิดแอป Terminal แล้ววางบรรทัดติดตั้งเองอีกครั้ง ระบบจะถามรหัส"   # an agent has no terminal; never paste the code into a chat
   { : </dev/tty; } 2>/dev/null || die "$notty"
-  printf 'วางรหัส TadClip ที่ได้ทาง LINE แล้วกด Enter · paste your TadClip code: ' >/dev/tty; read -r code </dev/tty || die "$notty"
+  printf 'วางรหัส CraftCut ที่ได้ทาง LINE แล้วกด Enter · paste your CraftCut code: ' >/dev/tty; read -r code </dev/tty || die "$notty"
 fi
 # Thai digits to 0-9, then keep only A-Z 0-9 and "-": drops spaces, tabs and the zero-width/nbsp characters LINE pastes
 code=$(printf '%s' "$code" | LC_ALL=C sed 's/๐/0/g;s/๑/1/g;s/๒/2/g;s/๓/3/g;s/๔/4/g;s/๕/5/g;s/๖/6/g;s/๗/7/g;s/๘/8/g;s/๙/9/g' |
@@ -48,7 +52,7 @@ case "$code" in
       *) case "$(json why "$r")" in
            expired) die "รหัสนี้หมดอายุแล้ว (ใช้ได้ถึง $(json until "$r")) ต่ออายุได้ในกลุ่ม LINE";;
            revoked) die "รหัสนี้ถูกยกเลิกแล้ว ติดต่อทีมในกลุ่ม LINE";;
-           norelease) die "TadClip ยังไม่พร้อมให้ติดตั้งตอนนี้ (ทีมกำลังเตรียมรุ่นใหม่) ลองวางบรรทัดเดิมอีกครั้งในอีกสักครู่ ถ้ายังไม่ได้ แจ้งในกลุ่ม LINE";;
+           norelease) die "CraftCut ยังไม่พร้อมให้ติดตั้งตอนนี้ (ทีมกำลังเตรียมรุ่นใหม่) ลองวางบรรทัดเดิมอีกครั้งในอีกสักครู่ ถ้ายังไม่ได้ แจ้งในกลุ่ม LINE";;
            *) die "$bad";;
          esac;;
     esac;;
@@ -57,7 +61,7 @@ case "$code" in
     m=$(curl -fsSL -m 30 "$META" 2>/dev/null) || die "ดาวน์โหลดข้อมูลรุ่นไม่ได้ ลองวางบรรทัดเดิมอีกครั้ง"
     month=$(json month "$m"); iv=$(json iv "$m"); sha=$(json sha256 "$m"); url=$(json url "$m"); until="${E:0:4}-${E:4:2}"
     n=$(( (10#${E:0:4} * 12 + 10#${E:4:2}) - (10#${month:0:4} * 12 + 10#${month:5:2}) ))
-    [ "$n" -ge 0 ] || die "รหัสนี้ใช้ได้ถึง ${E:0:4}-${E:4:2} แต่ TadClip รุ่นนี้ออกเดือน $month: ต่ออายุได้ในกลุ่ม LINE"
+    [ "$n" -ge 0 ] || die "รหัสนี้ใช้ได้ถึง ${E:0:4}-${E:4:2} แต่ CraftCut รุ่นนี้ออกเดือน $month: ต่ออายุได้ในกลุ่ม LINE"
     k=$(tr A-F a-f <<<"$raw")
     [[ "$k" =~ ^[0-9a-f]{64}$ ]] || die "รหัสไม่ถูกต้อง ตรวจรหัสที่ได้ทาง LINE แล้วลองใหม่"
     while [ "$n" -gt 0 ]; do k=$(printf '%s' "$k" | xxd -r -p | shasum -a 256 | cut -c1-64); n=$((n - 1)); done; key=$k;;   # not seq: macOS seq 1 0 counts down
@@ -75,7 +79,7 @@ checked() { [ -f "$1" ] && [ "$(shasum -a 256 "$1" | cut -c1-64)" = "$encsha" ];
 if ! checked "$enc"; then
   rm -f "$enc"
   if ! checked "$part"; then
-    say "ดาวน์โหลด TadClip $version · ดาวน์โหลดที่ค้างจะทำต่อจากเดิม"
+    say "ดาวน์โหลด CraftCut $version · ดาวน์โหลดที่ค้างจะทำต่อจากเดิม"
     if ! curl -fsSL --connect-timeout 20 --speed-limit 1024 --speed-time 60 -m 600 -C - -o "$part" "$url"; then
       die "ดาวน์โหลดไม่สำเร็จ รุ่นเดิมยังอยู่ วางคำสั่งเดิมอีกครั้งเพื่อดาวน์โหลดต่อ"
     fi
@@ -107,7 +111,7 @@ trap 'exit 130' INT
 trap 'exit 143' TERM
 /usr/bin/openssl enc -d -aes-256-cbc -K "$key" -iv "$iv" -in "$enc" -out "$T/r.tgz" 2>/dev/null &&
   [ "$(shasum -a 256 "$T/r.tgz" | cut -c1-64)" = "$sha" ] ||
-  { cache_rejected=1; die "รหัสนี้เปิด TadClip รุ่นนี้ไม่ได้ หรือไฟล์ดาวน์โหลดไม่ครบ รุ่นเดิมยังอยู่ แจ้งทีมในกลุ่ม LINE"; }
+  { cache_rejected=1; die "รหัสนี้เปิด CraftCut รุ่นนี้ไม่ได้ หรือไฟล์ดาวน์โหลดไม่ครบ รุ่นเดิมยังอยู่ แจ้งทีมในกลุ่ม LINE"; }
 mkdir "$T/src" && tar -xzf "$T/r.tgz" -C "$T/src"
 [ "$(cat "$T/src/.tadclip-version" 2>/dev/null)" = "$version" ] && [ -f "$T/src/.tadclip-paid" ] || die "เวอร์ชันในไฟล์ไม่ตรงกัน รุ่นเดิมยังอยู่ แจ้งทีมในกลุ่ม LINE"
 
@@ -153,6 +157,7 @@ success=1
 mkdir -p "$CFG"
 umask 077
 [ -f "$CFG/code" ] || printf '%s\n' "$code" > "$CFG/code"
+[ -f "$CFG/consent" ] || printf '%s %s\n' "$(date -u +%FT%TZ)" "$privacy" > "$CFG/consent"
 [ -f "$CFG/until" ] || printf '%s\n' "$until" > "$CFG/until"
 printf '%s\n' "$GATE" > "$CFG/gate"   # the app's check-in (app/hello.mjs) uses the same checker
 # the install's stamp (sha256 of the code, not the code) and checker travel with the folder: a copy checks in as a copy

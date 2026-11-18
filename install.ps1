@@ -1,4 +1,4 @@
-# TadClip install with a paid code, Windows (spike: becomes install.ps1's first step). Same contract as gate-install.sh:
+﻿# TadClip install with a paid code, Windows (spike: becomes install.ps1's first step). Same contract as gate-install.sh:
 # TC1 codes are checked by the Sheet's web app, TC2 codes carry their key. Only what Windows 10/11 ships: .NET AES +
 # SHA-256, Invoke-RestMethod, tar.exe. Then the usual installer runs on the unpacked copy (TADCLIP_SRC).
 #   irm <url>/install.ps1 | iex        or   $env:TADCLIP_CODE='TC1-...'; irm ... | iex
@@ -13,8 +13,8 @@ function Hex($s) { [byte[]]($s -split '(..)' | Where-Object { $_ } | ForEach-Obj
 
 # Target-volume check before saving credentials or downloading anything.
 $os = Get-CimInstance Win32_OperatingSystem; $cpu = Get-CimInstance Win32_Processor | Select-Object -First 1
-if ($cpu.Architecture -ne 9 -or [int]$os.BuildNumber -lt 17763) { Fail 'เครื่องนี้ใช้ TadClip ไม่ได้: ต้องเป็น Windows 10 (1809 ขึ้นไป) หรือ Windows 11 แบบ 64 บิต ชิป Intel หรือ AMD ยังไม่ได้ใช้รหัส'; return 1 }
-# Smart App Control (Windows 11) runs only signed programs, and the Python CutCraft sets up isn't signed: 11-18 a ClubGig
+if ($cpu.Architecture -ne 9 -or [int]$os.BuildNumber -lt 17763) { Fail 'เครื่องนี้ใช้ CraftCut ไม่ได้: ต้องเป็น Windows 10 (1809 ขึ้นไป) หรือ Windows 11 แบบ 64 บิต ชิป Intel หรือ AMD ยังไม่ได้ใช้รหัส'; return 1 }
+# Smart App Control (Windows 11) runs only signed programs, and the Python CraftCut sets up isn't signed: 11-18 a ClubGig
 # editor's install failed on "An Application Control policy has blocked this file (os error 4551)". Until the install
 # works with it on, say so in Thai before downloading anything. 1 = on (blocks); 2 = evaluation (watches, may switch on).
 $sac = (Get-ItemProperty -LiteralPath 'HKLM:\SYSTEM\CurrentControlSet\Control\CI\Policy' -Name VerifiedAndReputablePolicyState -ErrorAction SilentlyContinue).VerifiedAndReputablePolicyState
@@ -26,8 +26,8 @@ function Blocked { if ($sac -ne 1) { return }; try {
     ForEach-Object { Write-Host "Smart App Control บล็อก · blocked: $_" } } catch {} }
 $started = Get-Date
 if ($sac -eq 1 -and $env:CUTCRAFT_SAC -eq 'try') { Write-Host 'ทดสอบติดตั้งทั้งที่เปิด Smart App Control · testing with Smart App Control on' }
-elseif ($sac -eq 1) { Fail 'Windows เครื่องนี้เปิด Smart App Control อยู่ ซึ่งจะบล็อกเครื่องมือที่ CutCraft ใช้ ตอนนี้จึงยังติดตั้งไม่ได้ ทีมกำลังแก้ให้ใช้ได้โดยไม่ต้องปิด ถ้าต้องการใช้ตอนนี้: Windows Security > App & browser control > Smart App Control > Off แล้ววางบรรทัดเดิมอีกครั้ง (ปิดแล้ว Windows จะไม่บล็อกโปรแกรมที่ไม่มีลายเซ็น) · Smart App Control is on and blocks the tools CutCraft installs'; return 1 }
-if ($sac -eq 2) { Write-Host 'หมายเหตุ: Smart App Control กำลังประเมินเครื่องนี้ ถ้ามันเปิดเองภายหลัง CutCraft อาจถูกบล็อก · note: Smart App Control is evaluating this PC' }
+elseif ($sac -eq 1) { Fail 'Windows เครื่องนี้เปิด Smart App Control อยู่ ซึ่งจะบล็อกเครื่องมือที่ CraftCut ใช้ ตอนนี้จึงยังติดตั้งไม่ได้ ทีมกำลังแก้ให้ใช้ได้โดยไม่ต้องปิด ถ้าต้องการใช้ตอนนี้: Windows Security > App & browser control > Smart App Control > Off แล้ววางบรรทัดเดิมอีกครั้ง (ปิดแล้ว Windows จะไม่บล็อกโปรแกรมที่ไม่มีลายเซ็น) · Smart App Control is on and blocks the tools CraftCut installs'; return 1 }
+if ($sac -eq 2) { Write-Host 'หมายเหตุ: Smart App Control กำลังประเมินเครื่องนี้ ถ้ามันเปิดเองภายหลัง CraftCut อาจถูกบล็อก · note: Smart App Control is evaluating this PC' }
 $D = Join-Path $HOME '.claude\skills\tadclip'
 $drive = New-Object IO.DriveInfo ([IO.Path]::GetPathRoot($HOME))
 $need = if (Test-Path -LiteralPath $D) { 1GB } else { 8GB }
@@ -73,9 +73,12 @@ function Link-Data($data) {
 function Hash($p) { if (-not (Test-Path -LiteralPath $p)) { return '' }; $s = [IO.File]::OpenRead($p); try { -join ([Security.Cryptography.SHA256]::Create().ComputeHash($s) | ForEach-Object { $_.ToString('x2') }) } finally { $s.Dispose() } }
 $code = $env:TADCLIP_CODE
 if (-not $code -and (Test-Path -LiteralPath "$Cfg\code")) { $code = (Get-Content -LiteralPath "$Cfg\code" -Raw) }
+# PDPA (review 11-18): what the check-in sends, shown before the code is given; giving the code accepts it
+$privacy = 'CraftCut จะส่งข้อมูลการใช้งานไปที่ระบบตรวจรหัสของทีม: ชื่อเครื่อง ระบบ (Mac/Windows) รุ่นโปรแกรม AI ที่ใช้ จำนวนคลิปที่ทำเสร็จ วันที่ทำคลิปแรก และข้อผิดพลาดล่าสุด เพื่อตรวจรหัส แจ้งอัปเดต และดูแลการใช้งาน ไม่ส่งคลิป เสียง หรือข้อความของคุณ · CraftCut sends usage data to our code checker: computer name, Mac/Windows, version, AI used, reels made, first-reel date and the last error, to check your code, offer updates and support you. Never your clips, voice or words.'
+if (-not (Test-Path -LiteralPath "$Cfg\consent")) { Write-Host ''; Write-Host $privacy; if (-not $code) { Write-Host 'วางรหัสแล้วกด Enter = ยอมรับ · pasting your code and pressing Enter accepts this' }; Write-Host '' }
 if (-not $code) {   # an agent has no console to ask in; never paste the code into a chat
-  try { $code = Read-Host 'วางรหัส TadClip ที่ได้ทาง LINE แล้วกด Enter · paste your TadClip code' }
-  catch { Fail 'ไม่มีรหัส TadClip: เปิด PowerShell แล้ววางบรรทัดติดตั้งเองอีกครั้ง ระบบจะถามรหัส'; return 1 }
+  try { $code = Read-Host 'วางรหัส CraftCut ที่ได้ทาง LINE แล้วกด Enter · paste your CraftCut code' }
+  catch { Fail 'ไม่มีรหัส CraftCut: เปิด PowerShell แล้ววางบรรทัดติดตั้งเองอีกครั้ง ระบบจะถามรหัส'; return 1 }
 }
 # Thai digits to 0-9, then keep only A-Z 0-9 and "-": drops spaces and the zero-width/nbsp characters LINE pastes
 $code = -join ("$code".ToCharArray() | ForEach-Object { if ($_ -ge [char]0x0E50 -and $_ -le [char]0x0E59) { [char](48 + [int]$_ - 0x0E50) } else { $_ } })
@@ -97,7 +100,7 @@ if ($code -like 'TC1-*') {
     switch ($r.why) {
       'expired' { Fail "รหัสนี้หมดอายุแล้ว (ใช้ได้ถึง $($r.until)) ต่ออายุได้ในกลุ่ม LINE"; return 1 }
       'revoked' { Fail 'รหัสนี้ถูกยกเลิกแล้ว ติดต่อทีมในกลุ่ม LINE'; return 1 }
-      'norelease' { Fail 'TadClip ยังไม่พร้อมให้ติดตั้งตอนนี้ (ทีมกำลังเตรียมรุ่นใหม่) ลองวางบรรทัดเดิมอีกครั้งในอีกสักครู่ ถ้ายังไม่ได้ แจ้งในกลุ่ม LINE'; return 1 }
+      'norelease' { Fail 'CraftCut ยังไม่พร้อมให้ติดตั้งตอนนี้ (ทีมกำลังเตรียมรุ่นใหม่) ลองวางบรรทัดเดิมอีกครั้งในอีกสักครู่ ถ้ายังไม่ได้ แจ้งในกลุ่ม LINE'; return 1 }
       default   { Fail $bad; return 1 }
     }
   }
@@ -106,7 +109,7 @@ if ($code -like 'TC1-*') {
   $E = [int]$Matches[1] * 12 + [int]$Matches[2]; $until = "$($Matches[1])-$($Matches[2])"; $k = Hex $Matches[3].ToLower()
   try { $m = Invoke-RestMethod -Uri $Meta -TimeoutSec 30 } catch { Fail 'ดาวน์โหลดข้อมูลรุ่นไม่ได้ ลองวางบรรทัดเดิมอีกครั้ง'; return 1 }
   $n = $E - ([int]$m.month.Substring(0, 4) * 12 + [int]$m.month.Substring(5, 2))
-  if ($n -lt 0) { Fail "รหัสนี้ใช้ได้ถึง $until แต่ TadClip รุ่นนี้ออกเดือน $($m.month): ต่ออายุได้ในกลุ่ม LINE"; return 1 }
+  if ($n -lt 0) { Fail "รหัสนี้ใช้ได้ถึง $until แต่ CraftCut รุ่นนี้ออกเดือน $($m.month): ต่ออายุได้ในกลุ่ม LINE"; return 1 }
   $h = [Security.Cryptography.SHA256]::Create(); for ($i = 0; $i -lt $n; $i++) { $k = $h.ComputeHash($k) }
   $key = -join ($k | ForEach-Object { $_.ToString('x2') }); $iv = $m.iv; $sha = $m.sha256; $url = $m.url
 } else { Fail 'รหัสไม่ถูกต้อง ตรวจรหัสที่ได้ทาง LINE แล้วลองใหม่ (ขึ้นต้นด้วย TC1- หรือ TC2-)'; return 1 }
@@ -121,7 +124,7 @@ $enc = Join-Path $Cache ($encsha + '.enc'); $part = Join-Path $Cache ($encsha + 
 if ((Hash $enc) -ne $encsha) {
   Remove-Item -LiteralPath $enc -ErrorAction SilentlyContinue
   if ((Hash $part) -ne $encsha) {
-    Write-Host "ดาวน์โหลด TadClip $version · ดาวน์โหลดที่ค้างจะทำต่อจากเดิม"
+    Write-Host "ดาวน์โหลด CraftCut $version · ดาวน์โหลดที่ค้างจะทำต่อจากเดิม"
     $start = if (Test-Path -LiteralPath $part) { (Get-Item -LiteralPath $part).Length } else { 0 }
     $response = $null; $output = $null
     try {
@@ -151,7 +154,7 @@ try {
     try { $cs.CopyTo($output) } finally { $output.Dispose(); $cs.Dispose(); $a.Dispose() }
     $ok = (Hash "$T\r.tgz") -eq $sha
   } catch {}
-  if (-not $ok) { $cacheRejected = $true; Fail 'รหัสนี้เปิด TadClip รุ่นนี้ไม่ได้ หรือไฟล์ดาวน์โหลดไม่ครบ รุ่นเดิมยังอยู่ แจ้งทีมในกลุ่ม LINE'; return 1 }
+  if (-not $ok) { $cacheRejected = $true; Fail 'รหัสนี้เปิด CraftCut รุ่นนี้ไม่ได้ หรือไฟล์ดาวน์โหลดไม่ครบ รุ่นเดิมยังอยู่ แจ้งทีมในกลุ่ม LINE'; return 1 }
   New-Item -ItemType Directory -Path "$T\src" | Out-Null
   Push-Location -LiteralPath $T; try { & "$env:SystemRoot\System32\tar.exe" -xzf r.tgz -C src --exclude '._*' --exclude '*/._*' } finally { Pop-Location }
   # ._* = macOS metadata a Mac-built archive can carry; '._.' can't be copied on Windows (11-18: every paid Windows install failed on it)
@@ -203,6 +206,7 @@ try {
   $success = $true
   New-Item -ItemType Directory -Force -Path $Cfg | Out-Null
   if (-not (Test-Path -LiteralPath "$Cfg\code")) { Set-Content -LiteralPath "$Cfg\code" $code -Encoding ASCII }
+  if (-not (Test-Path -LiteralPath "$Cfg\consent")) { Set-Content -LiteralPath "$Cfg\consent" ((Get-Date).ToUniversalTime().ToString('s') + 'Z ' + $privacy) -Encoding UTF8 }
   if (-not (Test-Path -LiteralPath "$Cfg\until")) { Set-Content -LiteralPath "$Cfg\until" $until -Encoding ASCII }
   Set-Content -LiteralPath "$Cfg\gate" $Gate -Encoding ASCII
   if ($env:TADCLIP_DATA) { Set-Content -LiteralPath "$Cfg\data" $env:TADCLIP_DATA -Encoding ASCII }   # the app's check-in (app/hello.mjs) uses the same checker
@@ -235,7 +239,7 @@ try {
   Write-Host "สาเหตุ · reason: $why (line $at)"
   Blocked
   if ($why -match 'being used by another process|Access to the path .* is denied|ใช้งานอยู่') {
-    Write-Host 'ปิดหน้าต่าง CutCraft และ File Explorer / PowerShell ที่เปิดโฟลเดอร์ tadclip อยู่ แล้ววางคำสั่งเดิมอีกครั้ง · close CutCraft and any window open in the tadclip folder, then paste the line again'
+    Write-Host 'ปิดหน้าต่าง CraftCut และ File Explorer / PowerShell ที่เปิดโฟลเดอร์ tadclip อยู่ แล้ววางคำสั่งเดิมอีกครั้ง · close CraftCut and any window open in the tadclip folder, then paste the line again'
   }
   try {
     $logs = Join-Path $env:LOCALAPPDATA 'TadClip\Logs'; New-Item -ItemType Directory -Force -Path $logs | Out-Null
