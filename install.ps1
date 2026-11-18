@@ -14,6 +14,20 @@ function Hex($s) { [byte[]]($s -split '(..)' | Where-Object { $_ } | ForEach-Obj
 # Target-volume check before saving credentials or downloading anything.
 $os = Get-CimInstance Win32_OperatingSystem; $cpu = Get-CimInstance Win32_Processor | Select-Object -First 1
 if ($cpu.Architecture -ne 9 -or [int]$os.BuildNumber -lt 17763) { Fail 'เครื่องนี้ใช้ TadClip ไม่ได้: ต้องเป็น Windows 10 (1809 ขึ้นไป) หรือ Windows 11 แบบ 64 บิต ชิป Intel หรือ AMD ยังไม่ได้ใช้รหัส'; return 1 }
+# Smart App Control (Windows 11) runs only signed programs, and the Python CutCraft sets up isn't signed: 11-18 a ClubGig
+# editor's install failed on "An Application Control policy has blocked this file (os error 4551)". Until the install
+# works with it on, say so in Thai before downloading anything. 1 = on (blocks); 2 = evaluation (watches, may switch on).
+$sac = (Get-ItemProperty -LiteralPath 'HKLM:\SYSTEM\CurrentControlSet\Control\CI\Policy' -Name VerifiedAndReputablePolicyState -ErrorAction SilentlyContinue).VerifiedAndReputablePolicyState
+# $env:CUTCRAFT_SAC='try': install anyway (Python is now python.org's signed build), to test on a PC with it on; if
+# Windows blocks something, Blocked lists the files so the team knows which tool to replace
+function Blocked { if ($sac -ne 1) { return }; try {
+  Get-WinEvent -FilterHashtable @{ LogName = 'Microsoft-Windows-CodeIntegrity/Operational'; Id = 3033, 3077; StartTime = $started } -MaxEvents 20 -ErrorAction Stop |
+    ForEach-Object { $_.Properties[1].Value } | Select-Object -Unique -First 8 |   # 3033/3077: [1] = the blocked file
+    ForEach-Object { Write-Host "Smart App Control บล็อก · blocked: $_" } } catch {} }
+$started = Get-Date
+if ($sac -eq 1 -and $env:CUTCRAFT_SAC -eq 'try') { Write-Host 'ทดสอบติดตั้งทั้งที่เปิด Smart App Control · testing with Smart App Control on' }
+elseif ($sac -eq 1) { Fail 'Windows เครื่องนี้เปิด Smart App Control อยู่ ซึ่งจะบล็อกเครื่องมือที่ CutCraft ใช้ ตอนนี้จึงยังติดตั้งไม่ได้ ทีมกำลังแก้ให้ใช้ได้โดยไม่ต้องปิด ถ้าต้องการใช้ตอนนี้: Windows Security > App & browser control > Smart App Control > Off แล้ววางบรรทัดเดิมอีกครั้ง (ปิดแล้ว Windows จะไม่บล็อกโปรแกรมที่ไม่มีลายเซ็น) · Smart App Control is on and blocks the tools CutCraft installs'; return 1 }
+if ($sac -eq 2) { Write-Host 'หมายเหตุ: Smart App Control กำลังประเมินเครื่องนี้ ถ้ามันเปิดเองภายหลัง CutCraft อาจถูกบล็อก · note: Smart App Control is evaluating this PC' }
 $D = Join-Path $HOME '.claude\skills\tadclip'
 $drive = New-Object IO.DriveInfo ([IO.Path]::GetPathRoot($HOME))
 $need = if (Test-Path -LiteralPath $D) { 1GB } else { 8GB }
@@ -185,7 +199,7 @@ try {
   $result = @(Get-Content -Raw -Encoding UTF8 -LiteralPath $inst | Invoke-Expression)
   $rc = $global:LASTEXITCODE
   if ($result.Count -and $result[-1] -is [int]) { $rc = $result[-1] }
-  if ($rc) { Fail 'ติดตั้งยังไม่สำเร็จ คืนรุ่นเดิมแล้ว วางคำสั่งเดิมอีกครั้งเพื่อทำต่อ'; return 1 }
+  if ($rc) { Fail 'ติดตั้งยังไม่สำเร็จ คืนรุ่นเดิมแล้ว วางคำสั่งเดิมอีกครั้งเพื่อทำต่อ'; Blocked; return 1 }
   $success = $true
   New-Item -ItemType Directory -Force -Path $Cfg | Out-Null
   if (-not (Test-Path -LiteralPath "$Cfg\code")) { Set-Content -LiteralPath "$Cfg\code" $code -Encoding ASCII }
@@ -211,6 +225,7 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'readiness incomplete' }
   } catch {
     Write-Host "TADCLIP NOT READY · เช็กความพร้อมไม่สำเร็จ ส่งบรรทัดนี้ในกลุ่ม LINE ให้ทีมช่วย · build $version"
+    Blocked
   }
   $global:LASTEXITCODE = 0
 } catch {
@@ -218,6 +233,7 @@ try {
   $why = ("$($_.Exception.Message)" -replace '\s+', ' ').Trim(); $at = $_.InvocationInfo.ScriptLineNumber
   Fail 'ติดตั้งไม่สำเร็จ รุ่นเดิมยังอยู่ วางคำสั่งเดิมอีกครั้งเพื่อทำต่อ'
   Write-Host "สาเหตุ · reason: $why (line $at)"
+  Blocked
   if ($why -match 'being used by another process|Access to the path .* is denied|ใช้งานอยู่') {
     Write-Host 'ปิดหน้าต่าง CutCraft และ File Explorer / PowerShell ที่เปิดโฟลเดอร์ tadclip อยู่ แล้ววางคำสั่งเดิมอีกครั้ง · close CutCraft and any window open in the tadclip folder, then paste the line again'
   }
