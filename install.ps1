@@ -17,7 +17,45 @@ if ($cpu.Architecture -ne 9 -or [int]$os.BuildNumber -lt 17763) { Fail 'เค�
 $D = Join-Path $HOME '.claude\skills\tadclip'
 $drive = New-Object IO.DriveInfo ([IO.Path]::GetPathRoot($HOME))
 $need = if (Test-Path -LiteralPath $D) { 1GB } else { 8GB }
-if ($drive.AvailableFreeSpace -lt $need) { Fail 'พื้นที่ไม่พอ: ต้องว่างประมาณ 8 GB สำหรับติดตั้งครั้งแรก หรือ 1 GB สำหรับอัปเดต ลบไฟล์ที่ไม่ใช้ออก แล้ววางคำสั่งเดิมอีกครั้ง'; return 1 }
+# Data drive (11-18: a ClubGig editor's C: had 7 GB free, D: had room). The heavy parts (Python tools, speech model, caches,
+# the clips folder) can live on another drive, joined back with junctions so every path stays the same. Asked once, only
+# when C: is short and another drive has room; kept in %APPDATA%\TadClip\data for updates. TADCLIP_DATA preselects it.
+$data = $env:TADCLIP_DATA
+if (-not $data -and (Test-Path -LiteralPath "$Cfg\data")) { $data = (Get-Content -LiteralPath "$Cfg\data" -Raw).Trim() }
+if (-not $data -and $drive.AvailableFreeSpace -lt $need) {
+  $other = @([IO.DriveInfo]::GetDrives() | Where-Object { $_.DriveType -eq 'Fixed' -and $_.IsReady -and $_.Name -ne $drive.Name -and $_.AvailableFreeSpace -ge 8GB })
+  if ($other.Count) {
+    Write-Host ''
+    Write-Host ('ไดรฟ์ {0} ว่าง {1} GB ไม่พอ (ต้องประมาณ 8 GB) · ติดตั้งส่วนใหญ่ไว้ที่ไดรฟ์อื่นได้: {2}' -f $drive.Name.Substring(0, 1), [math]::Floor($drive.AvailableFreeSpace / 1GB), (($other | ForEach-Object { '{0} (ว่าง {1} GB)' -f $_.Name.Substring(0, 1), [math]::Floor($_.AvailableFreeSpace / 1GB) }) -join ', '))
+    $pick = try { Read-Host 'พิมพ์ตัวอักษรไดรฟ์ เช่น D แล้วกด Enter (กด Enter เฉยๆ = ยกเลิก) · type a drive letter' } catch { '' }
+    $pick = "$pick".Trim().TrimEnd(':').ToUpper()
+    if ($pick -and ($other | Where-Object { $_.Name.Substring(0, 1) -eq $pick })) { $data = $pick + ':\CutCraft' }
+  }
+}
+if ($data) {
+  $dataDrive = New-Object IO.DriveInfo ([IO.Path]::GetPathRoot($data))
+  if ($drive.AvailableFreeSpace -lt 1GB -or $dataDrive.AvailableFreeSpace -lt $need) { Fail ('พื้นที่ไม่พอ: ไดรฟ์ {0} ต้องว่างอย่างน้อย 1 GB และ {1} ต้องว่างประมาณ 8 GB ลบไฟล์ที่ไม่ใช้ออก แล้ววางคำสั่งเดิมอีกครั้ง' -f $drive.Name.Substring(0, 1), $data); return 1 }
+  $env:TADCLIP_DATA = $data   # the inner installer and setup.sh measure this drive
+  Write-Host "ไฟล์ใหญ่ (เครื่องมือ โมเดลเสียง คลิป) จะอยู่ที่ $data · heavy files go to $data"
+} elseif ($drive.AvailableFreeSpace -lt $need) { Fail 'พื้นที่ไม่พอ: ต้องว่างประมาณ 8 GB สำหรับติดตั้งครั้งแรก หรือ 1 GB สำหรับอัปเดต ลบไฟล์ที่ไม่ใช้ออก แล้ววางคำสั่งเดิมอีกครั้ง'; return 1 }
+# each heavy folder becomes a junction into the data folder; what is already there moves with it (robocopy /MOVE)
+function Link-Data($data) {
+  $links = [ordered]@{ 'venvs' = "$HOME\.venvs"; 'tools' = "$HOME\.local\share\tadclip-tools"; 'huggingface' = "$HOME\.cache\huggingface"
+    'hyperframes' = "$HOME\.cache\hyperframes"; 'uv-local' = (Join-Path $env:LOCALAPPDATA 'uv'); 'uv-roaming' = (Join-Path $env:APPDATA 'uv'); 'TadClip' = "$HOME\TadClip" }
+  foreach ($k in $links.Keys) {
+    $link = $links[$k]; $target = Join-Path $data $k
+    $item = Get-Item -LiteralPath $link -Force -ErrorAction SilentlyContinue
+    if ($item -and $item.LinkType -eq 'Junction') { continue }
+    New-Item -ItemType Directory -Force -Path $target | Out-Null
+    if ($item) {
+      & robocopy $link $target /E /MOVE /NFL /NDL /NJH /NJS /NP | Out-Null
+      if ($LASTEXITCODE -ge 8) { throw "moving $link to $target failed (robocopy $LASTEXITCODE)" }
+      if (Test-Path -LiteralPath $link) { Remove-Item -LiteralPath $link -Recurse -Force }
+    }
+    New-Item -ItemType Directory -Force -Path (Split-Path -Parent $link) | Out-Null
+    New-Item -ItemType Junction -Path $link -Target $target | Out-Null
+  }
+}
 function Hash($p) { if (-not (Test-Path -LiteralPath $p)) { return '' }; $s = [IO.File]::OpenRead($p); try { -join ([Security.Cryptography.SHA256]::Create().ComputeHash($s) | ForEach-Object { $_.ToString('x2') }) } finally { $s.Dispose() } }
 $code = $env:TADCLIP_CODE
 if (-not $code -and (Test-Path -LiteralPath "$Cfg\code")) { $code = (Get-Content -LiteralPath "$Cfg\code" -Raw) }
@@ -141,6 +179,7 @@ try {
   [IO.Directory]::Move($stage, $D)
   Remove-Item -LiteralPath $journal -ErrorAction SilentlyContinue
   $env:TADCLIP_SRC = "$T\src"
+  if ($env:TADCLIP_DATA) { Link-Data $env:TADCLIP_DATA }
   $inst = if ($env:TADCLIP_INSTALLER) { $env:TADCLIP_INSTALLER } else { Join-Path $D 'install.ps1' }
   $global:LASTEXITCODE = 0
   $result = @(Get-Content -Raw -Encoding UTF8 -LiteralPath $inst | Invoke-Expression)
@@ -151,7 +190,8 @@ try {
   New-Item -ItemType Directory -Force -Path $Cfg | Out-Null
   if (-not (Test-Path -LiteralPath "$Cfg\code")) { Set-Content -LiteralPath "$Cfg\code" $code -Encoding ASCII }
   if (-not (Test-Path -LiteralPath "$Cfg\until")) { Set-Content -LiteralPath "$Cfg\until" $until -Encoding ASCII }
-  Set-Content -LiteralPath "$Cfg\gate" $Gate -Encoding ASCII   # the app's check-in (app/hello.mjs) uses the same checker
+  Set-Content -LiteralPath "$Cfg\gate" $Gate -Encoding ASCII
+  if ($env:TADCLIP_DATA) { Set-Content -LiteralPath "$Cfg\data" $env:TADCLIP_DATA -Encoding ASCII }   # the app's check-in (app/hello.mjs) uses the same checker
   try {   # the install's stamp (sha256 of the code, not the code) and checker travel with the folder: a copy checks in as a copy
     $h = [Security.Cryptography.SHA256]::Create().ComputeHash([Text.Encoding]::ASCII.GetBytes($code))
     Set-Content -LiteralPath "$D\.tadclip-stamp" (-join ($h[0..7] | ForEach-Object { $_.ToString('x2') })) -Encoding ASCII
