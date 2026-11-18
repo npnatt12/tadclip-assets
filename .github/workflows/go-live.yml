@@ -1,0 +1,58 @@
+# One-tap publishing (18 Nov 2026). The build uploads each release as a DRAFT with its install files attached. Publishing
+# it (one tap in the GitHub app) runs this: the release's README.md, install.sh, install.ps1 and release.json are checked
+# and replace main's. The code checker (Code.gs) reads main/release.json, so nothing is pasted into the Sheet.
+# Rollback: Actions > go-live > Run workflow, tag = an earlier release that has its install files attached, dry run off.
+name: go-live
+on:
+  release: { types: [published] }
+  workflow_dispatch:
+    inputs:
+      tag: { description: "release tag to make live (rollback)", required: true }
+      dry_run: { description: "check only, change nothing", type: boolean, default: true }
+permissions: { contents: write }
+concurrency: { group: go-live, cancel-in-progress: false }
+jobs:
+  live:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: ${{ github.event.release.tag_name || inputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with: { ref: main }
+      - name: the release's files, checked
+        run: |
+          set -euo pipefail
+          R="$RUNNER_TEMP/r"; mkdir -p "$R"
+          gh release download "$TAG" -R "$GITHUB_REPOSITORY" -D "$R" -p release.json -p install.sh -p install.ps1 -p README.md -p '*.enc'
+          python3 - "$TAG" "$R" <<'P'
+          import glob, hashlib, json, os, re, sys
+          tag, r = sys.argv[1:]; m = json.load(open(os.path.join(r, "release.json")))
+          enc = [os.path.basename(p) for p in glob.glob(os.path.join(r, "*.enc"))]
+          assert len(enc) == 1, enc
+          assert m["version"] == tag, ("release.json version", m["version"], tag)
+          assert m["url"] == f"https://github.com/{os.environ['GITHUB_REPOSITORY']}/releases/download/{tag}/{enc[0]}", m["url"]
+          assert hashlib.sha256(open(os.path.join(r, enc[0]), "rb").read()).hexdigest() == m["ciphertext_sha256"], "archive hash"
+          assert re.fullmatch(r"\d{4}-\d{2}", m["month"]) and re.fullmatch(r"[0-9a-f]{32}", m["iv"]) and re.fullmatch(r"[0-9a-f]{64}", m["sha256"])
+          for f in ("install.sh", "install.ps1"):
+              t = open(os.path.join(r, f), encoding="utf-8").read()
+              assert "REPLACE_ME" not in t and "https://script.google.com/macros/s/" in t, f
+          print("checks pass:", tag, m["month"], enc[0])
+          P
+          bash -n "$R/install.sh"
+      - name: make it live
+        if: github.event_name == 'release' || inputs.dry_run == false
+        run: |
+          set -euo pipefail
+          R="$RUNNER_TEMP/r"
+          cp "$R/README.md" "$R/install.sh" "$R/install.ps1" "$R/release.json" .
+          git config user.name "go-live"; git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add README.md install.sh install.ps1 release.json
+          if git diff --cached --quiet; then echo "$TAG is already live"; exit 0; fi
+          git commit -q -m "$TAG: live (go-live)"; git push -q origin HEAD:main
+          sha=$(git rev-parse HEAD)
+          for f in README.md install.sh install.ps1 release.json; do
+            gh api "repos/$GITHUB_REPOSITORY/contents/$f?ref=$sha" -H 'Accept: application/vnd.github.raw+json' | cmp -s - "$R/$f" || { echo "readback differs: $f"; exit 1; }
+          done
+          echo "LIVE: $TAG at $sha"
