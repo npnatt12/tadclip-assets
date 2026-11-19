@@ -1,4 +1,4 @@
-﻿# TadClip install with a paid code, Windows (spike: becomes install.ps1's first step). Same contract as gate-install.sh:
+# TadClip install with a paid code, Windows (spike: becomes install.ps1's first step). Same contract as gate-install.sh:
 # TC1 codes are checked by the Sheet's web app, TC2 codes carry their key. Only what Windows 10/11 ships: .NET AES +
 # SHA-256, Invoke-RestMethod, tar.exe. Then the usual installer runs on the unpacked copy (TADCLIP_SRC).
 #   irm <url>/install.ps1 | iex        or   $env:TADCLIP_CODE='TC1-...'; irm ... | iex
