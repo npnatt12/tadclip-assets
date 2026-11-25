@@ -41,6 +41,7 @@ jobs:
           print("checks pass:", tag, m["month"], enc[0])
           P
           bash -n "$R/install.sh"
+          bash .github/verify.sh "$R"   # 26 Nov: the same check verify-live runs on main (BOM, parse as irm | iex, all five files)
       - name: make it live
         if: github.event_name == 'release' || inputs.dry_run == false
         run: |
@@ -55,4 +56,5 @@ jobs:
           for f in README.md install.sh install.ps1 release.json; do
             gh api "repos/$GITHUB_REPOSITORY/contents/$f?ref=$sha" -H 'Accept: application/vnd.github.raw+json' | cmp -s - "$R/$f" || { echo "readback differs: $f"; exit 1; }
           done
+          bash .github/verify.sh . --public   # what the installers fetch, from the public download folder
           echo "LIVE: $TAG at $sha"
