@@ -84,8 +84,12 @@ if (-not $code) {   # an agent has no console to ask in; never paste the code in
   # and failed, and the other ~200 lines ran at the PowerShell prompt. Now: drop the rest of a many-line paste, find a
   # code anywhere in the line ("รหัส: TC1-..."), and ask again (3 tries) instead of stopping.
   for ($try = 1; $try -le 3 -and -not $code; $try++) {
-    try { $raw = Read-Host 'วางรหัส CraftCut ที่ได้ทาง LINE แล้วกด Enter · paste your CraftCut code' }
-    catch { Fail 'ไม่มีรหัส CraftCut: เปิด PowerShell แล้ววางบรรทัดติดตั้งเองอีกครั้ง ระบบจะถามรหัส'; return 1 }
+    # hidden (25 Nov): buyers send screenshots of this window. piped input (CI) is read plainly
+    $ask = 'วางรหัส CraftCut ที่ได้ทาง LINE แล้วกด Enter (รหัสจะไม่แสดงบนจอ) · paste your CraftCut code (hidden)'
+    try {   # -AsSecureString waits forever on piped input (CI): hide only in a real console
+      if ([Console]::IsInputRedirected) { $raw = Read-Host $ask }
+      else { $s = Read-Host $ask -AsSecureString; $raw = [Runtime.InteropServices.Marshal]::PtrToStringBSTR([Runtime.InteropServices.Marshal]::SecureStringToBSTR($s)) }
+    } catch { Fail 'ไม่มีรหัส CraftCut: เปิด PowerShell แล้ววางบรรทัดติดตั้งเองอีกครั้ง ระบบจะถามรหัส'; return 1 }
     if ($null -eq $raw) { break }   # no more input (redirected stdin ran out)
     Start-Sleep -Milliseconds 300   # a long paste arrives in pieces
     try { $Host.UI.RawUI.FlushInputBuffer() } catch {}   # no console (ISE, CI): nothing to flush
@@ -95,6 +99,7 @@ if (-not $code) {   # an agent has no console to ask in; never paste the code in
     elseif ($try -lt 3) { Write-Host ('รหัสไม่ถูกต้อง ลองวางใหม่ (ขึ้นต้นด้วย TC1- หรือ TC2-) · not a code, try again ({0}/3)' -f $try) }
   }
   if (-not $code) { Fail $bad; return 1 }
+  Write-Host ('{0} ได้รหัส {1}… แล้ว · code received' -f [char]0x2713, $code.Substring(0, 4))
 }
 $code = Clean $code
 

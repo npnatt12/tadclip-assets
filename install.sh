@@ -24,15 +24,28 @@ code=${TADCLIP_CODE:-$(cat "$CFG/code" 2>/dev/null || true)}
 # to earlier installs (no consent file yet), then recorded with the date
 privacy="CraftCut จะส่งข้อมูลการใช้งานไปที่ระบบตรวจรหัสของทีม: ชื่อเครื่อง ระบบ (Mac/Windows) รุ่นโปรแกรม AI ที่ใช้ จำนวนคลิปที่ทำเสร็จ วันที่ทำคลิปแรก และข้อผิดพลาดล่าสุด เพื่อตรวจรหัส แจ้งอัปเดต และดูแลการใช้งาน ไม่ส่งคลิป เสียง หรือข้อความของคุณ · CraftCut sends usage data to our code checker: computer name, Mac/Windows, version, AI used, reels made, first-reel date and the last error, to check your code, offer updates and support you. Never your clips, voice or words."
 [ -f "$CFG/consent" ] || { echo; echo "$privacy"; [ -n "$code" ] || echo "วางรหัสแล้วกด Enter = ยอมรับ · pasting your code and pressing Enter accepts this"; echo; }
+# Thai digits to 0-9, then keep only A-Z 0-9 and "-": drops spaces, tabs and the zero-width/nbsp characters LINE pastes
+clean() { printf '%s' "$1" | LC_ALL=C sed 's/๐/0/g;s/๑/1/g;s/๒/2/g;s/๓/3/g;s/๔/4/g;s/๕/5/g;s/๖/6/g;s/๗/7/g;s/๘/8/g;s/๙/9/g' |
+          LC_ALL=C tr -cd 'A-Za-z0-9-' | tr a-z A-Z; }
+bad="รหัสไม่ถูกต้อง ตรวจรหัสที่ได้ทาง LINE แล้วลองใหม่ (คัดลอกทั้งบรรทัด ขึ้นต้นด้วย TC1-)"
 if [ -z "$code" ]; then
   notty="ไม่มีรหัส CraftCut: เปิดแอป Terminal แล้ววางบรรทัดติดตั้งเองอีกครั้ง ระบบจะถามรหัส"   # an agent has no terminal; never paste the code into a chat
   { : </dev/tty; } 2>/dev/null || die "$notty"
-  printf 'วางรหัส CraftCut ที่ได้ทาง LINE แล้วกด Enter · paste your CraftCut code: ' >/dev/tty; read -r code </dev/tty || die "$notty"
+  # 25 Nov: the code is not shown while pasting (buyers send screenshots of this window), the rest of a many-line paste
+  # is read away so it never runs in Terminal, a code is found anywhere in the line, and it asks up to 3 times
+  for try in 1 2 3; do
+    printf 'วางรหัส CraftCut ที่ได้ทาง LINE แล้วกด Enter (รหัสจะไม่แสดงบนจอ) · paste your CraftCut code (hidden): ' >/dev/tty
+    IFS= read -rs raw </dev/tty || die "$notty"; echo >/dev/tty
+    while IFS= read -rs -t 1 _ </dev/tty; do :; done
+    if [[ "$(clean "$raw")" =~ (TC1-[A-Z2-7]{13}|TC2-[0-9]{6}-[0-9A-F]{64})(-|$) ]]; then code=${BASH_REMATCH[1]}; break
+    elif [[ "$raw" =~ ^[[:space:]]*# || "$raw" == *"curl "* || "$raw" == *install.sh* ]]; then
+      echo "ที่วางคือบรรทัดติดตั้ง ไม่ใช่รหัส: เปิด LINE คัดลอกรหัสที่ขึ้นต้นด้วย TC1- หรือ TC2- แล้ววางที่นี่ · that was the install line, not your code" >/dev/tty
+    elif [ "$try" -lt 3 ]; then echo "รหัสไม่ถูกต้อง ลองวางใหม่ (ขึ้นต้นด้วย TC1- หรือ TC2-) · not a code, try again ($try/3)" >/dev/tty; fi
+  done
+  [ -n "$code" ] || die "$bad"
+  echo "✓ ได้รหัส ${code:0:4}… แล้ว · code received" >/dev/tty
 fi
-# Thai digits to 0-9, then keep only A-Z 0-9 and "-": drops spaces, tabs and the zero-width/nbsp characters LINE pastes
-code=$(printf '%s' "$code" | LC_ALL=C sed 's/๐/0/g;s/๑/1/g;s/๒/2/g;s/๓/3/g;s/๔/4/g;s/๕/5/g;s/๖/6/g;s/๗/7/g;s/๘/8/g;s/๙/9/g' |
-       LC_ALL=C tr -cd 'A-Za-z0-9-' | tr a-z A-Z)
-bad="รหัสไม่ถูกต้อง ตรวจรหัสที่ได้ทาง LINE แล้วลองใหม่ (คัดลอกทั้งบรรทัด ขึ้นต้นด้วย TC1-)"
+code=$(clean "$code")
 
 case "$code" in
   TC1-*)   # the Sheet checks it: revocable, counted
