@@ -76,14 +76,27 @@ if (-not $code -and (Test-Path -LiteralPath "$Cfg\code")) { $code = (Get-Content
 # PDPA (review 11-18): what the check-in sends, shown before the code is given; giving the code accepts it
 $privacy = 'CraftCut จะส่งข้อมูลการใช้งานไปที่ระบบตรวจรหัสของทีม: ชื่อเครื่อง ระบบ (Mac/Windows) รุ่นโปรแกรม AI ที่ใช้ จำนวนคลิปที่ทำเสร็จ วันที่ทำคลิปแรก และข้อผิดพลาดล่าสุด เพื่อตรวจรหัส แจ้งอัปเดต และดูแลการใช้งาน ไม่ส่งคลิป เสียง หรือข้อความของคุณ · CraftCut sends usage data to our code checker: computer name, Mac/Windows, version, AI used, reels made, first-reel date and the last error, to check your code, offer updates and support you. Never your clips, voice or words.'
 if (-not (Test-Path -LiteralPath "$Cfg\consent")) { Write-Host ''; Write-Host $privacy; if (-not $code) { Write-Host 'วางรหัสแล้วกด Enter = ยอมรับ · pasting your code and pressing Enter accepts this' }; Write-Host '' }
-if (-not $code) {   # an agent has no console to ask in; never paste the code into a chat
-  try { $code = Read-Host 'วางรหัส CraftCut ที่ได้ทาง LINE แล้วกด Enter · paste your CraftCut code' }
-  catch { Fail 'ไม่มีรหัส CraftCut: เปิด PowerShell แล้ววางบรรทัดติดตั้งเองอีกครั้ง ระบบจะถามรหัส'; return 1 }
-}
 # Thai digits to 0-9, then keep only A-Z 0-9 and "-": drops spaces and the zero-width/nbsp characters LINE pastes
-$code = -join ("$code".ToCharArray() | ForEach-Object { if ($_ -ge [char]0x0E50 -and $_ -le [char]0x0E59) { [char](48 + [int]$_ - 0x0E50) } else { $_ } })
-$code = ($code -replace '[^A-Za-z0-9-]', '').ToUpper()
+function Clean($s) { (-join ("$s".ToCharArray() | ForEach-Object { if ($_ -ge [char]0x0E50 -and $_ -le [char]0x0E59) { [char](48 + [int]$_ - 0x0E50) } else { $_ } }) -replace '[^A-Za-z0-9-]', '').ToUpper() }
 $bad = 'รหัสไม่ถูกต้อง ตรวจรหัสที่ได้ทาง LINE แล้วลองใหม่ (คัดลอกทั้งบรรทัด ขึ้นต้นด้วย TC1-)'
+if (-not $code) {   # an agent has no console to ask in; never paste the code into a chat
+  # 11-25: a Windows tester pasted the installer script itself at this prompt. Read-Host took its first line (a comment)
+  # and failed, and the other ~200 lines ran at the PowerShell prompt. Now: drop the rest of a many-line paste, find a
+  # code anywhere in the line ("รหัส: TC1-..."), and ask again (3 tries) instead of stopping.
+  for ($try = 1; $try -le 3 -and -not $code; $try++) {
+    try { $raw = Read-Host 'วางรหัส CraftCut ที่ได้ทาง LINE แล้วกด Enter · paste your CraftCut code' }
+    catch { Fail 'ไม่มีรหัส CraftCut: เปิด PowerShell แล้ววางบรรทัดติดตั้งเองอีกครั้ง ระบบจะถามรหัส'; return 1 }
+    if ($null -eq $raw) { break }   # no more input (redirected stdin ran out)
+    Start-Sleep -Milliseconds 300   # a long paste arrives in pieces
+    try { $Host.UI.RawUI.FlushInputBuffer() } catch {}   # no console (ISE, CI): nothing to flush
+    $c = Clean $raw
+    if ($c -cmatch 'TC1-[A-Z2-7]{13}(?![A-Z0-9])' -or $c -cmatch 'TC2-\d{6}-[0-9A-F]{64}(?![A-Z0-9])') { $code = $Matches[0] }
+    elseif ("$raw" -match 'irm |iex|install\.ps1|^\s*#') { Write-Host 'ที่วางคือบรรทัดติดตั้ง ไม่ใช่รหัส: เปิด LINE คัดลอกรหัสที่ขึ้นต้นด้วย TC1- หรือ TC2- แล้ววางที่นี่ · that was the install line, not your code' }
+    elseif ($try -lt 3) { Write-Host ('รหัสไม่ถูกต้อง ลองวางใหม่ (ขึ้นต้นด้วย TC1- หรือ TC2-) · not a code, try again ({0}/3)' -f $try) }
+  }
+  if (-not $code) { Fail $bad; return 1 }
+}
+$code = Clean $code
 
 if ($code -like 'TC1-*') {
   if ($code -cnotmatch '^TC1-[A-Z2-7]{13}$') { Fail $bad; return 1 }   # a typo never reaches the checker
