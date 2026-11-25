@@ -19,7 +19,8 @@ done
 bash -n "$D/install.sh" && ok "install.sh parses (bash)" || no "install.sh doesn't parse"
 # as irm hands it to iex: the bytes as UTF-8, a BOM kept as U+FEFF
 if ! command -v pwsh >/dev/null; then echo "- install.ps1 parse: skipped (no pwsh here; CI has it)"
-elif pwsh -NoProfile -Command '$t = [Text.Encoding]::UTF8.GetString([IO.File]::ReadAllBytes($args[0])); $e = $null; [void][Management.Automation.Language.Parser]::ParseInput($t, [ref]$null, [ref]$e); if ($e.Count) { $e | Select-Object -First 3 | ForEach-Object { "  " + $_.Message }; exit 1 }' "$D/install.ps1"
+# parse only, never run: the path goes in through the environment (extra words after -Command become part of the command)
+elif PS1="$(cd "$D" && pwd)/install.ps1" pwsh -NoProfile -NonInteractive -Command '$t = [Text.Encoding]::UTF8.GetString([IO.File]::ReadAllBytes($env:PS1)); $e = $null; [void][Management.Automation.Language.Parser]::ParseInput($t, [ref]$null, [ref]$e); if ($e.Count) { $e | Select-Object -First 3 | ForEach-Object { "  " + $_.Message }; exit 1 }'
 then ok "install.ps1 parses as irm | iex reads it"; else no "install.ps1 doesn't parse as irm | iex reads it"; fi
 if [ "${2:-}" = --public ]; then   # GitHub's download CDN may answer 404 for a few minutes after an upload
   for i in $(seq 1 12); do curl -fsSL -m 30 "${url%/*}/release.json?v=$i$RANDOM" -o "$T/pub.json" 2>/dev/null && break; sleep 15; done
