@@ -1,0 +1,22 @@
+# Every push to main: are the live files what buyers' computers can install from? (26 Nov: rc3.15 and rc3.16 went live
+# by hand-pushed commits after go-live refused them, and every install broke for 12 hours.) A failure here emails the
+# person who pushed. Also runnable by hand: Actions > verify-live > Run workflow.
+name: verify-live
+on:
+  push: { branches: [main], paths: [release.json, install.sh, install.ps1, README.md, .github/verify.sh, .github/workflows/verify-live.yml] }
+  pull_request: {}
+  workflow_dispatch: {}
+permissions: { contents: read }
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env: { GH_TOKEN: "${{ github.token }}" }
+    steps:
+      - uses: actions/checkout@v4
+      - name: the check catches a BOM (it must fail on a broken copy)
+        run: |
+          d="$RUNNER_TEMP/bom"; mkdir -p "$d"; cp release.json install.sh README.md "$d/"; printf '\xef\xbb\xbf' | cat - install.ps1 > "$d/install.ps1"
+          if bash .github/verify.sh "$d" >/dev/null; then echo "verify.sh passed a BOM'd install.ps1"; exit 1; fi; echo "caught"
+      - name: the live files, as buyers fetch them
+        run: bash .github/verify.sh . --public
